@@ -75,10 +75,17 @@ class CongestionDetector:
         speeds = [self.tracker.get_speed(oid) for oid in tracked.keys()]
         avg_speed = float(np.mean(speeds)) if speeds else 0.0
 
-        density_score = min(vehicle_count / max(self.max_vehicles, 1), 1.0)
-        speed_score = 1.0 - min(avg_speed / max(self.max_speed, 1e-6), 1.0)
-        congestion_score = (self.density_weight * density_score +
-                             (1 - self.density_weight) * speed_score)
+        if vehicle_count == 0:
+            # No vehicles detected at all -- an empty road, not a jammed one.
+            # Without this guard, avg_speed defaults to 0.0 when there's nothing
+            # to track, and the formula below misreads "0 speed" as "fully
+            # congested" even though there's nothing there to be congested.
+            congestion_score = 0.0
+        else:
+            density_score = min(vehicle_count / max(self.max_vehicles, 1), 1.0)
+            speed_score = 1.0 - min(avg_speed / max(self.max_speed, 1e-6), 1.0)
+            congestion_score = (self.density_weight * density_score +
+                                 (1 - self.density_weight) * speed_score)
 
         if congestion_score < 0.33:
             level, color = "Low", (0, 200, 0)
