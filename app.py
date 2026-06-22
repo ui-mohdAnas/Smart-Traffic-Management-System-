@@ -81,17 +81,34 @@ if run:
     frame_idx = 0
     stop_button = col_video.button("⏹ Stop")
     fps_metric = col_metrics.empty()
+    loop_notice = col_video.empty()
 
-    while cap.isOpened():
-        # Lightweight skip: grab() pulls the next frame from the decoder
-        # buffer WITHOUT decoding it -- much cheaper than read(), which
-        # does grab()+decode(). We only pay the decode cost on frames we
-        # actually process. This is the fix for "processing falls behind
-        # the video" -- the old loop decoded every single frame even when
-        # skipping it, wasting most of the CPU budget on frames we threw away.
+    is_finite_source = (source_type in ("Upload video", "Stream URL"))
+    MAX_RUNTIME_SECONDS = 600  # auto-stop after 10 min so an unattended tab
+                                # can't burn free-tier CPU indefinitely
+    session_start = time.time()
+
+    while True:
+        if time.time() - session_start > MAX_RUNTIME_SECONDS:
+            st.info("Auto-stopped after 10 minutes (free-tier safeguard). Click Start to resume.")
+            break
+
         grabbed = cap.grab()
         if not grabbed:
-            break
+            if is_finite_source:
+                # Short clip (e.g. a TfL JamCam mp4 is only a few seconds,
+                # refreshed periodically by the camera's own backend) --
+                # re-open the same source to keep the dashboard running
+                # continuously instead of stopping after one clip.
+                loop_notice.caption("Clip ended -- reconnecting to source for the next segment...")
+                cap.release()
+                cap = cv2.VideoCapture(video_source)
+                if not cap.isOpened():
+                    st.error("Lost connection to the source and could not reconnect.")
+                    break
+                continue
+            else:
+                break
         frame_idx += 1
         if frame_idx % frame_skip != 0:
             continue
@@ -107,6 +124,7 @@ if run:
         elapsed = time.time() - t_start
 
         frame_placeholder.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), channels="RGB")
+        loop_notice.empty()
         count_metric.metric("Vehicle count (ROI)", metrics["vehicle_count"])
         speed_metric.metric("Avg speed proxy (px/frame)", metrics["avg_speed_px"])
         level_metric.metric("Congestion level", metrics["congestion_level"],
